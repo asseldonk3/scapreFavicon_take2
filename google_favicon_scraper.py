@@ -15,6 +15,11 @@ import re
 # Create directory for storing images if it doesn't exist
 os.makedirs('favicons', exist_ok=True)
 
+# Function to sanitize filename for filesystem compatibility
+def sanitize_filename(filename):
+    """Remove or replace characters that are invalid in filenames"""
+    return re.sub(r'[<>:"/\\|?*]', '_', filename)
+
 # Function to extract and save base64 image from src attribute
 def save_base64_image(img_src, filename):
     if 'base64' in img_src:
@@ -157,10 +162,10 @@ def generate_favicon_gallery():
     # Add each favicon to the HTML
     for favicon_file in favicon_files:
         shop_id, domain = extract_info(favicon_file)
-        
+            
         html += f"""
         <div class="favicon-item">
-            <img class="favicon-image" src="./favicons/{favicon_file}" alt="Favicon for {domain}">
+                <img class="favicon-image" src="./favicons/{favicon_file}" alt="Favicon for {domain}">
             <div class="favicon-details">
                 <div class="shop-id">Shop ID: {shop_id}</div>
                 <div class="shop-domain">{domain}</div>
@@ -295,7 +300,7 @@ def create_standalone_html():
     # Add each favicon to the HTML with embedded base64 image
     for favicon_file in favicon_files:
         shop_id, domain = extract_info(favicon_file)
-        
+            
         # Get the base64 data for the image
         file_path = os.path.join(favicon_dir, favicon_file)
         if os.path.exists(file_path):
@@ -304,7 +309,7 @@ def create_standalone_html():
                 
                 html += f"""
         <div class="favicon-item">
-            <img class="favicon-image" src="{base64_image}" alt="Favicon for {domain}">
+                <img class="favicon-image" src="{base64_image}" alt="Favicon for {domain}">
             <div class="favicon-details">
                 <div class="shop-id">Shop ID: {shop_id}</div>
                 <div class="shop-domain">{domain}</div>
@@ -326,24 +331,90 @@ def create_standalone_html():
     
     print(f"Generated index_standalone.html with embedded images - can be moved anywhere")
 
+# Function to check if favicon already exists for this shop
+def check_existing_favicon(shop_id, shop_domain):
+    """Check if favicon already exists for this shop"""
+    # Check for various possible filename formats
+    possible_filenames = [
+        f"favicons/{shop_id}_{shop_domain.replace('.', '_')}.png",
+        f"favicons/{shop_id}_{shop_domain.replace('.', '_')}.jpg",
+        f"favicons/{shop_id}_{shop_domain.replace('.', '_')}.jpeg",
+        f"favicons/{shop_id}_{shop_domain.replace('.', '_')}.gif"
+    ]
+    
+    for filename in possible_filenames:
+        if os.path.exists(filename):
+            return True, filename
+    
+    return False, None
+
+def scan_existing_favicons():
+    """Scan existing favicons and return a set of shop IDs that already have favicons"""
+    existing_shop_ids = set()
+    
+    if not os.path.exists('favicons'):
+        return existing_shop_ids
+    
+    favicon_files = [f for f in os.listdir('favicons') if f.endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+    
+    for favicon_file in favicon_files:
+        # Extract shop ID from filename (format: ShopID_domain_name.extension)
+        parts = favicon_file.split('_', 1)
+        if len(parts) >= 1:
+            shop_id = parts[0]
+            existing_shop_ids.add(shop_id)
+    
+    print(f"Found existing favicons for {len(existing_shop_ids)} shops")
+    return existing_shop_ids
+
 # Main function to search Google and download favicons
-def search_and_download_favicons(csv_path):
+def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
+    print(f"Starting favicon scraper...")
+    
+    # Scan existing favicons to skip already downloaded ones
+    existing_shop_ids = scan_existing_favicons()
+    
     driver = setup_driver()
     
     try:
         # Read the CSV file
         with open(csv_path, 'r', encoding='utf-8') as csv_file:
             csv_reader = csv.reader(csv_file, delimiter=';')
-            next(csv_reader)  # Skip header row
+            headers = next(csv_reader)  # Skip header row
             
-            for row in csv_reader:
+            # Convert to list for easier indexing and counting
+            all_shops = list(csv_reader)
+            total_shops = len(all_shops)
+            
+            print(f"Total shops to process: {total_shops}")
+            print(f"Starting from index: {start_from}")
+            
+            if max_shops:
+                end_at = min(start_from + max_shops, total_shops)
+                print(f"Will process up to shop index: {end_at-1}")
+            else:
+                end_at = total_shops
+            
+            shops_processed = 0
+            shops_successful = 0
+            shops_skipped = 0
+            
+            for i, row in enumerate(all_shops[start_from:end_at]):
+                current_index = start_from + i
                 shop_id = row[0]
                 shop_domain = row[1]
                 
-                print(f"Processing {shop_id}: {shop_domain}")
+                print(f"Processing ({current_index+1}/{total_shops}) {shop_id}: {shop_domain}")
+                
+                # Check if favicon already exists
+                if shop_id in existing_shop_ids:
+                    print(f"  ✓ Favicon already exists for {shop_domain} - skipping")
+                    shops_skipped += 1
+                    continue
                 
                 # Create a clean domain name for searching
                 domain_for_search = shop_domain.split('.')[0]  # Remove .com, .nl etc.
+                print(f"  Searching Google for: {domain_for_search}")
                 
                 # Open Google search
                 driver.get(f"https://www.google.com/search?q={domain_for_search}")
@@ -363,12 +434,33 @@ def search_and_download_favicons(csv_path):
                     WebDriverWait(driver, 10).until(
                         EC.presence_of_element_located((By.ID, "search"))
                     )
+                    # Also wait for favicon images to load
+                    WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.CLASS_NAME, "XNo5Ab"))
+                    )
                 except TimeoutException:
-                    print(f"  Timeout waiting for search results for {shop_domain}")
-                    continue
+                    print(f"  Timeout waiting for search results or favicons for {shop_domain}")
+                    # Continue anyway, maybe partial results loaded
                 
                 # Add a short delay to avoid detection
                 time.sleep(2 + (len(shop_domain) % 3))  # Variable delay
+                
+                # DEBUG: Save HTML to see what Selenium sees (only for first few shops)
+                if shops_processed < 3:
+                    # Sanitize filename by removing invalid characters
+                    safe_domain = sanitize_filename(shop_domain)
+                    debug_html_file = f"debug_{shop_id}_{safe_domain.replace('.', '_')}.html"
+                    with open(debug_html_file, 'w', encoding='utf-8') as f:
+                        f.write(driver.page_source)
+                    print(f"  DEBUG: Saved HTML to {debug_html_file}")
+                
+                # Also print all cite texts found on the page for debugging
+                all_cites = driver.find_elements(By.TAG_NAME, "cite")
+                print(f"\n  DEBUG: Found {len(all_cites)} total cite elements on page")
+                if all_cites and shops_processed < 3:
+                    print("  DEBUG: First 5 cite texts:")
+                    for j, cite in enumerate(all_cites[:5]):
+                        print(f"    {j+1}. '{cite.text}'")
                 
                 # Look for the website in organic search results using multiple approaches
                 favicon_found = False
@@ -376,10 +468,14 @@ def search_and_download_favicons(csv_path):
                 # APPROACH 1: Look for the domain in cite elements and find nearby images
                 try:
                     # First look for results with the domain in the cite element
-                    cite_elements = driver.find_elements(By.XPATH, f"//cite[contains(text(), '{shop_domain}')]")
+                    # Use domain name without TLD for more flexible matching (case-insensitive)
+                    domain_name_only = shop_domain.split('.')[0]
+                    cite_elements = driver.find_elements(By.XPATH, f"//cite[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{domain_name_only.lower()}')]")
+                    
+                    print(f"  DEBUG: Found {len(cite_elements)} cite elements containing '{domain_name_only}' (searching without TLD)")
                     
                     if cite_elements:
-                        for cite in cite_elements:
+                        for i, cite in enumerate(cite_elements):
                             try:
                                 # First, try to find the parent div that contains both cite and image
                                 parent_div = cite.find_element(By.XPATH, "./ancestor::div[contains(@class, 'yuRUbf') or contains(@class, 'g') or contains(@class, 'MjjYud')]")
@@ -387,8 +483,10 @@ def search_and_download_favicons(csv_path):
                                 # Find any image within this parent
                                 img_elements = parent_div.find_elements(By.TAG_NAME, "img")
                                 
+                                print(f"    DEBUG: Cite #{i+1} - Found {len(img_elements)} images in parent div")
+                                
                                 if img_elements:
-                                    for img in img_elements:
+                                    for j, img in enumerate(img_elements):
                                         img_src = img.get_attribute('src')
                                         
                                         if img_src:
@@ -414,7 +512,7 @@ def search_and_download_favicons(csv_path):
                                 continue
                         
                         if favicon_found:
-                            continue  # Move to next domain if favicon was found
+                            break  # Exit approach 1 if favicon was found
                 
                 except Exception as e:
                     print(f"  Error with approach 1 for {shop_domain}: {e}")
@@ -425,7 +523,9 @@ def search_and_download_favicons(csv_path):
                         # Look for the favicon images directly
                         favicon_imgs = driver.find_elements(By.XPATH, "//img[contains(@class, 'XNo5Ab')]")
                         
-                        for img in favicon_imgs:
+                        print(f"  DEBUG: Found {len(favicon_imgs)} images with XNo5Ab class")
+                        
+                        for img_idx, img in enumerate(favicon_imgs):
                             # Find the closest cite element to check if it's for our domain
                             try:
                                 # Find parent element that might contain the cite
@@ -436,7 +536,9 @@ def search_and_download_favicons(csv_path):
                                 
                                 for cite in cite_elements:
                                     cite_text = cite.text.lower()
-                                    if shop_domain.lower() in cite_text:
+                                    domain_name_only = shop_domain.split('.')[0].lower()
+                                    # Check if domain name (without TLD) is in cite text
+                                    if domain_name_only in cite_text:
                                         img_src = img.get_attribute('src')
                                         
                                         if img_src:
@@ -457,23 +559,125 @@ def search_and_download_favicons(csv_path):
                                 
                                 if favicon_found:
                                     break
-                                    
+                    
                             except NoSuchElementException:
                                 continue
                         
                         if favicon_found:
-                            continue  # Move to next domain if favicon was found
+                            break  # Exit approach 2 if favicon was found
                     
                     except Exception as e:
                         print(f"  Error with approach 2 for {shop_domain}: {e}")
+                
+                # APPROACH 2.5: Look for the specific Google structure with q0vns class
+                if not favicon_found:
+                    try:
+                        # Look for the parent div with class q0vns that contains both favicon and cite
+                        result_divs = driver.find_elements(By.XPATH, "//div[@class='q0vns']")
+                        print(f"  DEBUG: Found {len(result_divs)} result divs with q0vns class")
+                        
+                        for div in result_divs:
+                            try:
+                                # Check if this div contains our domain in the cite
+                                cite = div.find_element(By.TAG_NAME, "cite")
+                                cite_text = cite.text.lower()
+                                # More flexible domain matching - handle www. prefix and path suffixes
+                                domain_lower = shop_domain.lower()
+                                domain_without_www = domain_lower.replace('www.', '')
+                                # Also try without TLD for better matching
+                                domain_name_only = domain_lower.split('.')[0]
+                                
+                                # Check various possible matches
+                                matches = [
+                                    domain_lower in cite_text,
+                                    domain_without_www in cite_text,
+                                    f".{domain_lower}" in cite_text,  # with leading dot
+                                    f".{domain_without_www}" in cite_text,
+                                    domain_name_only in cite_text and '.' in cite_text,  # domain name with any TLD
+                                    cite_text.startswith(f"https://{domain_lower}"),
+                                    cite_text.startswith(f"https://www.{domain_without_www}"),
+                                    cite_text.startswith(f"www.{domain_lower}"),
+                                    cite_text.startswith(domain_lower)
+                                ]
+                                
+                                if any(matches):
+                                    print(f"    DEBUG: Found matching cite with text: {cite.text}")
+                                    
+                                    # Look for the favicon image with XNo5Ab class
+                                    try:
+                                        favicon_img = div.find_element(By.CLASS_NAME, "XNo5Ab")
+                                        img_src = favicon_img.get_attribute('src')
+                                        print(f"    DEBUG: Found favicon with src length: {len(img_src) if img_src else 0}")
+                                        
+                                        if img_src:
+                                            filename = f"favicons/{shop_id}_{shop_domain.replace('.', '_')}.png"
+                                            
+                                            if save_base64_image(img_src, filename):
+                                                print(f"  Successfully saved favicon for {shop_domain}")
+                                                favicon_found = True
+                                                break
+                                            elif download_image(img_src, filename):
+                                                print(f"  Successfully downloaded favicon for {shop_domain}")
+                                                favicon_found = True
+                                                break
+                                    except NoSuchElementException:
+                                        print(f"    DEBUG: No XNo5Ab image found in this result div")
+                            except NoSuchElementException:
+                                continue
+                    except Exception as e:
+                        print(f"  DEBUG: Error with approach 2.5: {e}")
+                
+                # APPROACH 2.6: Look for the specific DDKf1c span structure
+                if not favicon_found:
+                    try:
+                        # Look for spans with DDKf1c class that contain favicon images
+                        favicon_spans = driver.find_elements(By.CLASS_NAME, "DDKf1c")
+                        print(f"  DEBUG: Found {len(favicon_spans)} DDKf1c spans")
+                        
+                        domain_name_only = shop_domain.split('.')[0].lower()
+                        
+                        for span_idx, span in enumerate(favicon_spans):
+                            try:
+                                # Find the XNo5Ab image within this span
+                                favicon_img = span.find_element(By.CLASS_NAME, "XNo5Ab")
+                                
+                                # Now find the nearest cite element to verify it's for our domain
+                                # Go up to find a common parent, then look for cite
+                                parent = span
+                                for _ in range(5):  # Try up to 5 levels up
+                                    try:
+                                        parent = parent.find_element(By.XPATH, "..")
+                                        cites = parent.find_elements(By.TAG_NAME, "cite")
+                                        if cites:
+                                            for cite in cites:
+                                                if domain_name_only in cite.text.lower():
+                                                    print(f"    DEBUG: Found matching domain in cite: {cite.text}")
+                                                    img_src = favicon_img.get_attribute('src')
+                                                    if img_src:
+                                                        filename = f"favicons/{shop_id}_{shop_domain.replace('.', '_')}.png"
+                                                        if save_base64_image(img_src, filename):
+                                                            print(f"  Successfully saved favicon for {shop_domain}")
+                                                            favicon_found = True
+                                                            break
+                                            if favicon_found:
+                                                break
+                                    except:
+                                        continue
+                                if favicon_found:
+                                    break
+                            except NoSuchElementException:
+                                continue
+                    except Exception as e:
+                        print(f"  DEBUG: Error with approach 2.6: {e}")
                 
                 # APPROACH 3: Look for any image near the cite with our domain
                 if not favicon_found:
                     try:
                         all_cites = driver.find_elements(By.TAG_NAME, "cite")
+                        domain_name_only = shop_domain.split('.')[0].lower()
                         for cite in all_cites:
                             cite_text = cite.text.lower()
-                            if shop_domain.lower() in cite_text:
+                            if domain_name_only in cite_text:
                                 # Get parent node to look for nearby images
                                 try:
                                     parent_node = cite.find_element(By.XPATH, "./..")
@@ -508,17 +712,27 @@ def search_and_download_favicons(csv_path):
                                         
                                 except Exception:
                                     continue
-                            
+                    
                     except Exception as e:
                         print(f"  Error with approach 3 for {shop_domain}: {e}")
                 
-                # If no favicon found after all attempts
-                if not favicon_found:
+                # Track success and increment processed count
+                if favicon_found:
+                    shops_successful += 1
+                else:
                     print(f"  Could not find favicon for {shop_domain}")
+                
+                shops_processed += 1
                 
                 # Add random delay between requests to avoid detection
                 time.sleep(3 + (len(shop_domain) % 5))
     
+            print(f"\nCompleted processing!")
+            print(f"  Processed: {shops_processed}")
+            print(f"  Successful: {shops_successful}")
+            print(f"  Skipped (already exist): {shops_skipped}")
+            print(f"  Success rate: {(shops_successful/shops_processed*100) if shops_processed > 0 else 0:.1f}%")
+            
     except Exception as e:
         print(f"Error: {e}")
     
@@ -530,4 +744,22 @@ def search_and_download_favicons(csv_path):
         generate_favicon_gallery()
 
 if __name__ == "__main__":
-    search_and_download_favicons('urls.csv')
+    import sys
+    
+    # Default values
+    csv_file = 'remaining_shops.csv'
+    start_index = 0
+    max_to_process = None
+    
+    # Parse command line arguments if provided
+    if len(sys.argv) > 1:
+        csv_file = sys.argv[1]
+    if len(sys.argv) > 2:
+        start_index = int(sys.argv[2])
+    if len(sys.argv) > 3:
+        max_to_process = int(sys.argv[3])
+    
+    print(f"Starting scraper with CSV: {csv_file}, Starting at index: {start_index}" + 
+          (f", Processing up to {max_to_process} shops" if max_to_process else ""))
+    
+    search_and_download_favicons(csv_file, start_index, max_to_process)
