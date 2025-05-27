@@ -1,0 +1,27 @@
+Starting scraper with CSV: remaining_shops2_final.csv, Starting at index: 1
+Starting favicon scraper...
+Found existing favicons for 763 shops
+Total shops to process: 1525
+Starting from index: 1
+Processing (2/1525) 13568: Kaartje2go.nl
+  Searching Google for: Kaartje2go.nl
+  DEBUG: Saved HTML to debug_13568_Kaartje2go_nl.html
+
+  DEBUG: Found 22 total cite elements on page
+  DEBUG: First 5 cite texts:
+    1. 'https://www.kaartje2go.nl'
+    2. ''
+    3. ''
+    4. ''
+    5. ''
+  DEBUG: Found 8 cite elements containing 'Kaartje2go' (searching without TLD)
+    DEBUG: Cite #1 - Found 1 images in parent div
+  Successfully saved favicon for Kaartje2go.nl
+
+Completed processing!
+  Processed: 0
+  Successful: 0
+  Skipped (already exist): 0
+  Success rate: 0.0%
+Generated index.html with 764 favicon images
+Generated index_standalone.html with embedded images - can be moved anywhere
