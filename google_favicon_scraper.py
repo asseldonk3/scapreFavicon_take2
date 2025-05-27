@@ -11,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 import re
+import random # Import random for variable delays
 
 # Create directory for storing images if it doesn't exist
 os.makedirs('favicons', exist_ok=True)
@@ -47,22 +48,28 @@ def download_image(img_url, filename):
 # Set up Chrome options for Selenium with anti-detection measures
 def setup_driver():
     chrome_options = Options()
-    # Add anti-detection measures
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--start-maximized")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
-    # Add user agent (common Dutch user agent)
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    # Add language preference for Dutch
-    chrome_options.add_argument("--lang=nl-NL")
-    
-    # Create a new WebDriver instance
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
+    ]
+    chrome_options.add_argument(f"user-agent={random.choice(user_agents)}")
+    chrome_options.add_argument("--lang=nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7") # More realistic accept language
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--profile-directory=Default") # Use default profile if available
+    chrome_options.add_argument("--incognito") # Incognito might help, or might be a flag, test this
+    chrome_options.add_argument("--disable-plugins-discovery")
+    chrome_options.add_argument("--disable-popup-blocking")
+
     driver = webdriver.Chrome(options=chrome_options)
-    
-    # Execute JavaScript to prevent detection
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    
+    driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['nl-NL', 'nl']});")
+    driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});") # Mock plugins
     return driver
 
 # Function to generate the HTML gallery with all favicons
@@ -423,29 +430,27 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
                     
                     # Accept cookies if the dialog appears (common for EU visitors)
                     try:
-                        WebDriverWait(driver, 5).until(
+                        WebDriverWait(driver, 10).until( # Increased from 5 to 10
                             EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Alles accepteren') or contains(., 'Accept all')]"))
                         ).click()
-                        time.sleep(1)  # Wait for the cookie dialog to disappear
+                        time.sleep(random.uniform(1.5, 3.0))  # Wait for the cookie dialog to disappear
                     except TimeoutException:
                         # Cookie dialog might not appear if already accepted
                         pass
                     
                     # Wait for search results to load
                     try:
-                        WebDriverWait(driver, 10).until(
+                        WebDriverWait(driver, 15).until( # Increased from 10 to 15
                             EC.presence_of_element_located((By.ID, "search"))
                         )
-                        # Also wait for favicon images to load
-                        WebDriverWait(driver, 5).until(
+                        WebDriverWait(driver, 10).until( # Increased from 5 to 10
                             EC.presence_of_element_located((By.CLASS_NAME, "XNo5Ab"))
                         )
                     except TimeoutException:
                         print(f"  Timeout waiting for search results or favicons for {shop_domain}")
                         # Continue anyway, maybe partial results loaded
                     
-                    # Add a short delay to avoid detection
-                    time.sleep(2 + (len(shop_domain) % 3))  # Variable delay
+                    time.sleep(random.uniform(2.5, 5.5)) # Variable delay, increased base
                     
                     # DEBUG: Save HTML to see what Selenium sees (only for first few shops)
                     if shops_processed < 3:
@@ -726,7 +731,10 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
                     
                     shops_processed += 1
                     
-                    time.sleep(3 + (len(shop_domain) % 5))
+                    # Increased and randomized delay between requests
+                    delay = random.uniform(7, 15) # Random delay between 7 and 15 seconds
+                    print(f"  😴 Sleeping for {delay:.1f} seconds...")
+                    time.sleep(delay)
                 
                 except WebDriverException as wde:
                     print(f"  ❌ WebDriverException for {shop_domain}: {wde}")
@@ -749,7 +757,10 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
                 
                 shops_processed += 1
                 
-                time.sleep(3 + (len(shop_domain) % 5))
+                # Increased and randomized delay between requests
+                delay = random.uniform(7, 15) # Random delay between 7 and 15 seconds
+                print(f"  😴 Sleeping for {delay:.1f} seconds...")
+                time.sleep(delay)
             
             print(f"\nCompleted processing!")
             total_processed = shops_processed + shops_skipped
