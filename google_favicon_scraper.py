@@ -381,6 +381,10 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
     existing_shop_ids = scan_existing_favicons()
     driver = None  # Initialize driver to None
     
+    # Configuration for browser restart
+    SHOPS_PER_BROWSER_SESSION = random.randint(8, 12)  # Restart browser every 8-12 shops
+    shops_in_current_session = 0
+    
     try:
         with open(csv_path, 'r', encoding='utf-8') as csv_file:
             csv_reader = csv.reader(csv_file, delimiter=';')
@@ -417,6 +421,21 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
                     shops_skipped += 1
                     continue
                 
+                # Check if we need to restart the browser
+                if shops_in_current_session >= SHOPS_PER_BROWSER_SESSION:
+                    print(f"  🔄 Restarting browser after {shops_in_current_session} shops...")
+                    if driver:
+                        driver.quit()
+                        driver = None
+                    # Random delay before starting new browser
+                    restart_delay = random.uniform(10, 20)
+                    print(f"  😴 Waiting {restart_delay:.1f} seconds before starting new browser session...")
+                    time.sleep(restart_delay)
+                    driver = setup_driver()
+                    shops_in_current_session = 0
+                    SHOPS_PER_BROWSER_SESSION = random.randint(8, 12)  # Randomize next session length
+                    print(f"  ✅ New browser session started (will process {SHOPS_PER_BROWSER_SESSION} shops)")
+                
                 try:
                     # Use the full domain name for searching (including extension)
                     domain_for_search = shop_domain
@@ -425,6 +444,7 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
                     if driver is None: # If driver was quit due to an error, restart it
                         print("  Restarting WebDriver...")
                         driver = setup_driver()
+                        shops_in_current_session = 0
                     
                     driver.get(f"https://www.google.com/search?q={domain_for_search}")
                     
@@ -730,6 +750,7 @@ def search_and_download_favicons(csv_path, start_from=0, max_shops=None):
                         print(f"  Could not find favicon for {shop_domain}")
                     
                     shops_processed += 1
+                    shops_in_current_session += 1  # Increment session counter
                     
                     # Increased and randomized delay between requests
                     delay = random.uniform(7, 15) # Random delay between 7 and 15 seconds
