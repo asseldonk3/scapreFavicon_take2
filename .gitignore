@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Project specific
+favicons/
+!favicons/.gitkeep
+*.csv
+!urls_sample.csv
+index.html
+index_standalone.html
+index_standalone2.html
+debug_*.html
+scraper_log.txt
+google_search_html/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db 
